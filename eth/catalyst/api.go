@@ -235,8 +235,6 @@ func (api *ConsensusAPI) ForkchoiceUpdatedV3(ctx context.Context, update engine.
 			return engine.STATUS_INVALID, attributesErr("missing withdrawals")
 		case params.BeaconRoot == nil:
 			return engine.STATUS_INVALID, attributesErr("missing beacon root")
-		case !api.checkFork(params.Timestamp, forks.Cancun, forks.Prague, forks.Osaka, forks.BPO1, forks.BPO2):
-			return engine.STATUS_INVALID, unsupportedForkErr("fcuV3 must only be called for cancun/prague/osaka payloads")
 		}
 	}
 	// TODO(matt): the spec requires that fcu is applied when called on a valid
@@ -257,8 +255,6 @@ func (api *ConsensusAPI) ForkchoiceUpdatedV4(ctx context.Context, update engine.
 			return engine.STATUS_INVALID, attributesErr("missing beacon root")
 		case params.SlotNumber == nil:
 			return engine.STATUS_INVALID, attributesErr("missing slot number")
-		case !api.checkFork(params.Timestamp, forks.Amsterdam, forks.BPO3, forks.BPO4, forks.BPO5, forks.Bogota):
-			return engine.STATUS_INVALID, unsupportedForkErr("fcuV4 must only be called for amsterdam payloads")
 		}
 	}
 	if custodyColumns != nil {
@@ -416,6 +412,9 @@ func (api *ConsensusAPI) forkchoiceUpdated(ctx context.Context, update engine.Fo
 	// sealed by the beacon client. The payload will be requested later, and we
 	// will replace it arbitrarily many times in between.
 	if payloadAttributes != nil {
+		if err := api.attributesForkSupported(payloadVersion, payloadAttributes.Timestamp); err != nil {
+			return valid(nil), err
+		}
 		args := &miner.BuildPayloadArgs{
 			Parent:         update.HeadBlockHash,
 			Timestamp:      payloadAttributes.Timestamp,
@@ -442,6 +441,20 @@ func (api *ConsensusAPI) forkchoiceUpdated(ctx context.Context, update engine.Fo
 		return valid(&id), nil
 	}
 	return valid(nil), nil
+}
+
+func (api *ConsensusAPI) attributesForkSupported(payloadVersion engine.PayloadVersion, timestamp uint64) error {
+	switch payloadVersion {
+	case engine.PayloadV4:
+		if !api.checkFork(timestamp, forks.Amsterdam, forks.BPO3, forks.BPO4, forks.BPO5, forks.Bogota) {
+			return unsupportedForkErr("fcuV4 must only be called for amsterdam payloads")
+		}
+	case engine.PayloadV3:
+		if !api.checkFork(timestamp, forks.Cancun, forks.Prague, forks.Osaka, forks.BPO1, forks.BPO2) {
+			return unsupportedForkErr("fcuV3 must only be called for cancun/prague/osaka payloads")
+		}
+	}
+	return nil
 }
 
 // ExchangeTransitionConfigurationV1 checks the given configuration against
